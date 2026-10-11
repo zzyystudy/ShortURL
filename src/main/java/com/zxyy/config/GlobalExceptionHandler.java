@@ -1,6 +1,7 @@
 package com.zxyy.config;
 
 import com.zxyy.exception.BusinessException;
+import com.zxyy.exception.ShortUrlNotFoundException;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -17,6 +18,12 @@ import java.util.stream.Collectors;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ShortUrlNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, Object> handleShortUrlNotFound(ShortUrlNotFoundException exception) {
+        return Map.of("code", 404, "message", exception.getMessage());
+    }
 
     /**
      * 处理 @Valid @RequestBody 的参数校验失败。

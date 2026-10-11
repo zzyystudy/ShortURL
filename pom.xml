@@ -54,6 +54,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- 支持 application.yml 中配置的 Lettuce 连接池 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
         <!-- mybatis plus-->
         <dependency>
             <groupId>com.baomidou</groupId>
@@ -78,18 +83,12 @@
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
             <version>4.5.0</version>
         </dependency>
-        <!--rabbitmq-->
-        <!--AMQP依赖，包含RabbitMQ-->
+        <!-- RabbitMQ：包含 RabbitTemplate、监听器和消息转换器支持 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
-        <!--配置rabbitmq的序列化转换器-->
-        <dependency>
-            <groupId>com.fasterxml.jackson.dataformat</groupId>
-            <artifactId>jackson-dataformat-xml</artifactId>
-            <version>2.9.10</version>
-        </dependency>
+        <!-- JSON 所需的 Jackson 已由 spring-boot-starter-web 引入 -->
     </dependencies>
 
 
