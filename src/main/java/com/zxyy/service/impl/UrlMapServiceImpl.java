@@ -11,6 +11,7 @@ import com.zxyy.exception.ShortUrlNotFoundException;
 import com.zxyy.mapper.DomainConfMapper;
 import com.zxyy.mapper.UrlMapMapper;
 import com.zxyy.service.UrlMapService;
+import com.zxyy.utils.KeyedLock;
 import com.zxyy.utils.RedisCache;
 import com.zxyy.utils.ShortCodeGenerator;
 import jakarta.validation.ConstraintViolation;
@@ -48,6 +49,7 @@ public class UrlMapServiceImpl extends ServiceImpl<UrlMapMapper, UrlMap>
     private final Validator validator;
     private final String defaultDomain;
     private final TransactionTemplate transactionTemplate;
+    private final KeyedLock cacheLoadLocks = new KeyedLock();
 
     public UrlMapServiceImpl(UrlMapMapper urlMapMapper, DomainConfMapper domainConfMapper,
                              RedisCache redisCache, ShortCodeGenerator shortCodeGenerator,
@@ -113,12 +115,42 @@ public class UrlMapServiceImpl extends ServiceImpl<UrlMapMapper, UrlMap>
         if (compressionCode == null || !compressionCode.matches("[0-9a-zA-Z]{6}")) {
             throw new ShortUrlNotFoundException();
         }
-        Object cached = null;
+        Object cached = readCachedResult(compressionCode);
+        UrlMap cachedMapping = usableCachedMapping(cached);
+        if (cachedMapping != null) {
+            return cachedMapping;
+        }
+        return cacheLoadLocks.withLock(compressionCode, () -> {
+            // 等待锁期间，前一个请求可能已经回填缓存；拿到锁后必须再查一次。
+            UrlMap reloaded = usableCachedMapping(readCachedResult(compressionCode));
+            if (reloaded != null) {
+                return reloaded;
+            }
+            UrlMap urlMap = baseMapper.selectOne(Wrappers.<UrlMap>lambdaQuery()
+                    .eq(UrlMap::getCompressionCode, compressionCode)
+                    .eq(UrlMap::getUrlStatus, 1)
+                    // 即使尚未执行字段排序规则修正，也不会将 Abc123 错认成 abc123。
+                    .apply("BINARY compression_code = {0}", compressionCode));
+            if (urlMap == null) {
+                cacheResult(compressionCode, Boolean.FALSE, MISSING_TTL_SECONDS);
+                throw new ShortUrlNotFoundException();
+            }
+            cacheResult(compressionCode, urlMap, CACHE_TTL_SECONDS);
+            return urlMap;
+        });
+    }
+
+    private Object readCachedResult(String compressionCode) {
         try {
-            cached = redisCache.getCacheObject(CACHE_PREFIX + compressionCode);
+            return redisCache.getCacheObject(CACHE_PREFIX + compressionCode);
         } catch (RuntimeException exception) {
             log.warn("读取短链缓存失败，回查数据库，短码：{}", compressionCode, exception);
+            return null;
         }
+    }
+
+    /** null 表示需要回源；负缓存直接返回 404。 */
+    private UrlMap usableCachedMapping(Object cached) {
         if (cached instanceof UrlMap urlMap
                 && Objects.equals(urlMap.getUrlStatus(), 1)
                 && !Objects.equals(urlMap.getDeleted(), 1)) {
@@ -128,17 +160,7 @@ public class UrlMapServiceImpl extends ServiceImpl<UrlMapMapper, UrlMap>
             throw new ShortUrlNotFoundException();
         }
 
-        UrlMap urlMap = baseMapper.selectOne(Wrappers.<UrlMap>lambdaQuery()
-                .eq(UrlMap::getCompressionCode, compressionCode)
-                .eq(UrlMap::getUrlStatus, 1)
-                // 即使尚未执行字段排序规则修正，也不会将 Abc123 错认成 abc123。
-                .apply("BINARY compression_code = {0}", compressionCode));
-        if (urlMap == null) {
-            cacheResult(compressionCode, Boolean.FALSE, MISSING_TTL_SECONDS);
-            throw new ShortUrlNotFoundException();
-        }
-        cacheResult(compressionCode, urlMap, CACHE_TTL_SECONDS);
-        return urlMap;
+        return null;
     }
 
     @Override
